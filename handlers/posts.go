@@ -12,6 +12,13 @@ import (
 	"github.com/gorilla/mux"
 )
 
+type PaginatedPostsResponse struct {
+	Posts      []models.Post `json:"posts"`
+	Page       int           `json:"page"`
+	Limit      int           `json:"limit"`
+	TotalPosts int           `json:"total_posts"`
+}
+
 func CreatePost(w http.ResponseWriter, r *http.Request) {
 	var post models.Post
 	json.NewDecoder(r.Body).Decode(&post)
@@ -48,7 +55,28 @@ func ListUserPosts(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userId, _ := strconv.Atoi(vars["user_id"])
 
-	rows, err := db.DB.Query("SELECT id, caption, image_url, posted_at FROM posts WHERE user_id = $1 LIMIT 10", userId)
+	page, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil || page < 1 {
+		page = 1 // Default to the first page
+	}
+
+	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil || limit < 1 {
+		limit = 10 // Default to 10 posts per page
+	}
+
+	offset := (page - 1) * limit
+
+	// Query to get the total number of posts for the user
+	var totalPosts int
+	err = db.DB.QueryRow("SELECT COUNT(*) FROM posts WHERE user_id = $1", userId).Scan(&totalPosts)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Query to get the posts with pagination
+	rows, err := db.DB.Query("SELECT id, caption, image_url, posted_at FROM posts WHERE user_id = $1 LIMIT $2 OFFSET $3", userId, limit, offset)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -58,9 +86,22 @@ func ListUserPosts(w http.ResponseWriter, r *http.Request) {
 	posts := []models.Post{}
 	for rows.Next() {
 		var post models.Post
-		rows.Scan(&post.ID, &post.Caption, &post.ImageURL, &post.PostedAt)
+		err := rows.Scan(&post.ID, &post.Caption, &post.ImageURL, &post.PostedAt)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		posts = append(posts, post)
 	}
 
-	json.NewEncoder(w).Encode(posts)
+	response := PaginatedPostsResponse{
+		Posts:      posts,
+		Page:       page,
+		Limit:      limit,
+		TotalPosts: totalPosts,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	json.NewEncoder(w).Encode(response)
 }

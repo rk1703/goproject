@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	db.InitDB("postgres://username:password@localhost/instagram?sslmode=disable")
+	db.InitDB("postgres://postgres:rk1703@localhost/instagram?sslmode=disable")
 
 	r := mux.NewRouter()
 
